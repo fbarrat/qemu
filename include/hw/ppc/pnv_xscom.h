@@ -81,6 +81,13 @@ typedef struct PnvXScomInterfaceClass {
 #define PNV9_XSCOM_OCC_BASE       PNV_XSCOM_OCC_BASE
 #define PNV9_XSCOM_OCC_SIZE       0x8000
 
+#define PNV9_XSCOM_NPU_BASE1      0x5011000
+#define PNV9_XSCOM_NPU_SIZE1      0x702
+#define PNV9_XSCOM_NPU_BASE2      0x5013c00
+#define PNV9_XSCOM_NPU_SIZE2      0x88
+
+#define PNV9_XSCOM_NPU_INDIRECT0  0x8000000009010c3fUL /* OB0 - indirect access */
+
 #define PNV9_XSCOM_PSIHB_BASE     0x5012900
 #define PNV9_XSCOM_PSIHB_SIZE     0x100
 

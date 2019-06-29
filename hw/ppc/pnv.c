@@ -1088,6 +1088,9 @@ static void pnv_chip_power9_instance_init(Object *obj)
                                 sizeof(chip9->pecs[i]), TYPE_PNV_PHB4_PEC,
                                 &error_abort, NULL);
     }
+
+    object_initialize_child(obj, "npu", &chip9->npu2, sizeof(chip9->npu2),
+                            TYPE_PNV_NPU2, &error_abort, NULL);
 }
 
 static void pnv_chip_quad_realize(Pnv9Chip *chip9, Error **errp)
@@ -1221,6 +1224,15 @@ static void pnv_chip_power9_realize(DeviceState *dev, Error **errp)
             return;
         }
     }
+
+    /* NPU2 */
+    object_property_set_bool(OBJECT(&chip9->npu2), true, "realized", &local_err);
+    if (local_err) {
+        error_propagate(errp, local_err);
+        return;
+    }
+    pnv_xscom_add_subregion(chip, PNV9_XSCOM_NPU_BASE1, &chip9->npu2.xscom_regs1);
+    pnv_xscom_add_subregion(chip, PNV9_XSCOM_NPU_BASE2, &chip9->npu2.xscom_regs2);
 }
 
 static void pnv_chip_power9_class_init(ObjectClass *klass, void *data)

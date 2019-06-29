@@ -28,6 +28,7 @@
 #include "hw/ppc/pnv_occ.h"
 #include "hw/ppc/pnv_xive.h"
 #include "hw/ppc/pnv_core.h"
+#include "hw/ppc/pnv_npu.h"
 #include "hw/pci-host/pnv_phb3.h"
 #include "hw/pci-host/pnv_phb4.h"
 #include "hw/ppc/pnv_pnor.h"
@@ -96,6 +97,7 @@ typedef struct Pnv9Chip {
     Pnv9Psi      psi;
     PnvLpcController lpc;
     PnvOCC       occ;
+    PnvNpu2      npu2;
 
     uint32_t     nr_quads;
     PnvQuad      *quads;
