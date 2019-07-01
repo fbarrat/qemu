@@ -1226,13 +1226,21 @@ static void pnv_chip_power9_realize(DeviceState *dev, Error **errp)
     }
 
     /* NPU2 */
-    object_property_set_bool(OBJECT(&chip9->npu2), true, "realized", &local_err);
+    object_property_set_bool(OBJECT(&chip9->npu2), true, "realized",
+                             &local_err);
     if (local_err) {
         error_propagate(errp, local_err);
         return;
     }
-    pnv_xscom_add_subregion(chip, PNV9_XSCOM_NPU_BASE1, &chip9->npu2.xscom_regs1);
-    pnv_xscom_add_subregion(chip, PNV9_XSCOM_NPU_BASE2, &chip9->npu2.xscom_regs2);
+    pnv_xscom_add_subregion(chip, PNV9_XSCOM_NPU_BASE1,
+                            &chip9->npu2.xscom_regs1);
+    pnv_xscom_add_subregion(chip, PNV9_XSCOM_NPU_BASE2,
+                            &chip9->npu2.xscom_regs2);
+    pnv_xscom_add_subregion(chip, PNV9_XSCOM_OBUS0_BASE,
+                            &chip9->npu2.xscom_obus0_regs);
+    pnv_xscom_add_subregion(chip, PNV9_XSCOM_OBUS0_INDIRECT_BASE,
+                            &chip9->npu2.xscom_obus0_indirect_regs);
+
 }
 
 static void pnv_chip_power9_class_init(ObjectClass *klass, void *data)

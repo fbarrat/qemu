@@ -37,6 +37,9 @@
 #define NPU2_STACK1_CQ_CTL_STATUS		0x2d2
 #define NPU2_STACK2_CQ_CTL_STATUS		0x4d2
 
+#define OBUS_ODL0_STATUS 0x2c
+#define OBUS_ODL1_STATUS 0x2d
+
 /* TODO: fix GETFIELD/SETFIELD macro definitions */
 #if HOST_LONG_BITS == 32
 # define MASK_TO_LSH(m)          (__builtin_ffsll(m) - 1)
@@ -210,26 +213,6 @@ static hwaddr indirect_to_scom(hwaddr indirect_addr)
     return ring_to_scom(ring_addr);
 }
 
-static uint64_t pnv_npu2_xscom_read(void *opaque, hwaddr addr, unsigned size)
-{
-    PnvNpu2 *npu = PNV_NPU2(opaque);
-    hwaddr scom_offset;
-    int reg = addr >> 3;
-    uint64_t val;
-
-    if (reg >= PNV9_XSCOM_NPU_SIZE1)
-        return INVALID_SCOM_DATA;
-
-    val = npu->scom[reg];
-    switch(reg) {
-        case NPU2_MISC_SCOM_IND_SCOM_DATA:
-            scom_offset = indirect_to_scom(npu->scom[NPU2_MISC_SCOM_IND_SCOM_ADDR]);
-            return pnv_npu2_xscom_read(opaque, scom_offset << 3, size);
-    }
-
-    return val;
-}
-
 static void update_fence_state(PnvNpu2 *npu, int brick, int val)
 {
     hwaddr offset;
@@ -260,7 +243,27 @@ static void update_fence_state(PnvNpu2 *npu, int brick, int val)
     npu->fence_state[brick] = !!val;
 }
 
-static void pnv_npu2_xscom_write(void *opaque, hwaddr addr,
+static uint64_t pnv_npu2_xscom1_read(void *opaque, hwaddr addr, unsigned size)
+{
+    PnvNpu2 *npu = PNV_NPU2(opaque);
+    hwaddr scom_offset;
+    int reg = addr >> 3;
+    uint64_t val;
+
+    if (reg >= PNV9_XSCOM_NPU_SIZE1)
+        return INVALID_SCOM_DATA;
+
+    val = npu->scom[reg];
+    switch(reg) {
+        case NPU2_MISC_SCOM_IND_SCOM_DATA:
+            scom_offset = indirect_to_scom(npu->scom[NPU2_MISC_SCOM_IND_SCOM_ADDR]);
+            return pnv_npu2_xscom1_read(opaque, scom_offset << 3, size);
+    }
+
+    return val;
+}
+
+static void pnv_npu2_xscom1_write(void *opaque, hwaddr addr,
                                  uint64_t val, unsigned size)
 {
     PnvNpu2 *npu = PNV_NPU2(opaque);
@@ -275,7 +278,7 @@ static void pnv_npu2_xscom_write(void *opaque, hwaddr addr,
     switch(reg) {
     case NPU2_MISC_SCOM_IND_SCOM_DATA:
         scom_offset = indirect_to_scom(npu->scom[NPU2_MISC_SCOM_IND_SCOM_ADDR]);
-        pnv_npu2_xscom_write(opaque, scom_offset << 3, val, size);
+        pnv_npu2_xscom1_write(opaque, scom_offset << 3, val, size);
         return;
     case NPU2_STACK1_CQ_CTL_FENCE_CONTROL0:
     case NPU2_STACK1_CQ_CTL_FENCE_CONTROL1:
@@ -288,9 +291,129 @@ static void pnv_npu2_xscom_write(void *opaque, hwaddr addr,
     }
 }
 
-static const MemoryRegionOps pnv_npu2_xscom_ops = {
-    .read = pnv_npu2_xscom_read,
-    .write = pnv_npu2_xscom_write,
+static const MemoryRegionOps pnv_npu2_xscom1_ops = {
+    .read = pnv_npu2_xscom1_read,
+    .write = pnv_npu2_xscom1_write,
+    .valid.min_access_size = 8,
+    .valid.max_access_size = 8,
+    .impl.min_access_size = 8,
+    .impl.max_access_size = 8,
+    .endianness = DEVICE_BIG_ENDIAN,
+};
+
+static uint64_t pnv_npu2_xscom2_read(void *opaque, hwaddr addr, unsigned size)
+{
+    int reg = addr >> 3;
+
+    if (reg >= PNV9_XSCOM_NPU_SIZE2)
+        return INVALID_SCOM_DATA;
+
+    return 0;
+}
+
+static void pnv_npu2_xscom2_write(void *opaque, hwaddr addr,
+                                 uint64_t val, unsigned size)
+{
+}
+
+static const MemoryRegionOps pnv_npu2_xscom2_ops = {
+    .read = pnv_npu2_xscom2_read,
+    .write = pnv_npu2_xscom2_write,
+    .valid.min_access_size = 8,
+    .valid.max_access_size = 8,
+    .impl.min_access_size = 8,
+    .impl.max_access_size = 8,
+    .endianness = DEVICE_BIG_ENDIAN,
+};
+
+static uint64_t pnv_obus0_xscom_read(void *opaque, hwaddr addr, unsigned size)
+{
+    int reg = addr >> 3;
+
+    printf("reading obus0 offset %x\n", reg);
+    switch (reg) {
+    case OBUS_ODL0_STATUS:
+    case OBUS_ODL1_STATUS:
+        return 0x2900ffff00007100; /* link is trained */
+    default:
+        return INVALID_SCOM_DATA;
+    }
+}
+
+static void pnv_obus0_xscom_write(void *opaque, hwaddr addr,
+                                  uint64_t val, unsigned size)
+{
+    int reg = addr >> 3;
+
+    printf("writing obus0 offset %x\n", reg);
+}
+
+static const MemoryRegionOps pnv_obus0_xscom_ops = {
+    .read = pnv_obus0_xscom_read,
+    .write = pnv_obus0_xscom_write,
+    .valid.min_access_size = 8,
+    .valid.max_access_size = 8,
+    .impl.min_access_size = 8,
+    .impl.max_access_size = 8,
+    .endianness = DEVICE_BIG_ENDIAN,
+};
+
+/* fxb high-level logic should be moved to pnv_xscom, since it's
+ * independent from chiplet */
+static uint64_t pnv_obus0_xscom_indirect_read(void *opaque, hwaddr addr,
+                                              unsigned size)
+{
+    PnvNpu2 *npu = PNV_NPU2(opaque);
+    bool read;
+    uint64_t res, reg, data;
+
+    if (!npu->xscom_obus0_indirect_addr) {
+        qemu_log_mask(LOG_GUEST_ERROR,
+                      "Indirect xscom read with no operation in progress\n");
+        return INVALID_SCOM_DATA;
+    }
+    addr = GETFIELD(PPC_BITMASK(12, 31), npu->xscom_obus0_indirect_addr);
+    reg = GETFIELD(PPC_BITMASK(10, 21), npu->xscom_obus0_indirect_addr);
+    read = npu->xscom_obus0_indirect_addr & PPC_BIT(0);
+
+    switch (reg) {
+    case 0x3c1: /* ZCAL DONE, ZCAL ERROR */
+        data = PPC_BIT(50);
+        break;
+    case 0x0ca: /* INIT DONE, DCCAL DONE, LANE BUSY */
+        data = PPC_BIT(48) | PPC_BIT(49);
+        break;
+    default:
+        data = 0;
+    }
+    printf("fxb obus indirect op reg=%lx data=%lx\n", reg, data);
+    res = PPC_BIT(32); /* data ready */
+    res = SETFIELD(PPC_BITMASK(12, 31), res, addr);
+    res = SETFIELD(PPC_BITMASK(48, 63), res, data);
+    if (read) {
+        res |= PPC_BIT(0);
+    }
+    npu->xscom_obus0_indirect_addr = 0;
+    printf("fxb obus indirect op at %lx, returning %lx\n", addr, res);
+    return res;
+}
+
+static void pnv_obus0_xscom_indirect_write(void *opaque, hwaddr addr,
+                                           uint64_t val, unsigned size)
+{
+    PnvNpu2 *npu = PNV_NPU2(opaque);
+
+    if (npu->xscom_obus0_indirect_addr) {
+        qemu_log_mask(LOG_GUEST_ERROR,
+                      "Indirect xscom write while previous operation still in progress\n");
+        /* keep going */
+    }
+    npu->xscom_obus0_indirect_addr = val;
+}
+
+static const MemoryRegionOps pnv_obus0_xscom_indirect_ops = {
+    .read = pnv_obus0_xscom_indirect_read,
+    .write = pnv_obus0_xscom_indirect_write,
     .valid.min_access_size = 8,
     .valid.max_access_size = 8,
     .impl.min_access_size = 8,
@@ -303,11 +426,25 @@ static void pnv_npu2_realize(DeviceState *dev, Error **errp)
     PnvNpu2 *npu = PNV_NPU2(dev);
 
     pnv_xscom_region_init(&npu->xscom_regs1, OBJECT(npu),
-                          &pnv_npu2_xscom_ops, npu, "xscom1-npu2",
+                          &pnv_npu2_xscom1_ops, npu,
+                          "xscom1-npu2",
                           PNV9_XSCOM_NPU_SIZE1);
+
     pnv_xscom_region_init(&npu->xscom_regs2, OBJECT(npu),
-                          &pnv_npu2_xscom_ops, npu, "xscom2-npu2",
-                          PNV9_XSCOM_NPU_SIZE2); // fxb need new ops to differentiate scom areas
+                          &pnv_npu2_xscom2_ops, npu,
+                          "xscom2-npu2",
+                          PNV9_XSCOM_NPU_SIZE2);
+
+    /* PHY xscom region */
+    pnv_xscom_region_init(&npu->xscom_obus0_regs, OBJECT(npu),
+                          &pnv_obus0_xscom_ops, npu,
+                          "xscom-obus0",
+                          PNV9_XSCOM_OBUS_SIZE);
+
+    pnv_xscom_region_init(&npu->xscom_obus0_indirect_regs, OBJECT(npu),
+                          &pnv_obus0_xscom_indirect_ops, npu,
+                          "xscom-obus0-indirect",
+                          PNV9_XSCOM_OBUS_INDIRECT_SIZE);
 }
 
 static void pnv_npu2_class_init(ObjectClass *klass, void *data)
