@@ -30,6 +30,25 @@
 
 #define NPU2_MISC_SCOM_IND_SCOM_ADDR		0x68e
 #define NPU2_MISC_SCOM_IND_SCOM_DATA		0x68f
+#define NPU2_STACK1_CQ_CTL_FENCE_CONTROL0	0x2e8
+#define NPU2_STACK1_CQ_CTL_FENCE_CONTROL1	0x2e9
+#define NPU2_STACK2_CQ_CTL_FENCE_CONTROL0	0x4e8
+#define NPU2_STACK2_CQ_CTL_FENCE_CONTROL1	0x4e9
+#define NPU2_STACK1_CQ_CTL_STATUS		0x2d2
+#define NPU2_STACK2_CQ_CTL_STATUS		0x4d2
+
+/* TODO: fix GETFIELD/SETFIELD macro definitions */
+#if HOST_LONG_BITS == 32
+# define MASK_TO_LSH(m)          (__builtin_ffsll(m) - 1)
+#elif HOST_LONG_BITS == 64
+# define MASK_TO_LSH(m)          (__builtin_ffsl(m) - 1)
+#else
+# error Unknown sizeof long
+#endif
+
+#define GETFIELD(m, v)          (((v) & (m)) >> MASK_TO_LSH(m))
+#define SETFIELD(m, v, val)                             \
+        (((v) & ~(m)) | ((((typeof(v))(val)) << MASK_TO_LSH(m)) & (m)))
 
 static void dt_add_npu_link(void *fdt, int offset, int group, int link_index)
 {
@@ -90,9 +109,6 @@ static int pnv_npu2_dt_xscom(PnvXScomInterface *dev, void *fdt,
     return 0;
 }
 
-#define GET_Z_FIELD(addr) ((addr & 0xF00000) >> 20)
-#define GET_X_FIELD(addr) ((addr & 0x0F0000) >> 16)
-#define GET_ADDR_FIELD(addr) (addr & 0xFFFF)
 #define INVALID_SCOM_OFFSET (~0ULL)
 #define INVALID_SCOM_DATA (~0ULL)
 
@@ -101,8 +117,8 @@ static hwaddr ring_to_scom(hwaddr ring_addr)
     int stack, block;
     hwaddr scom_offset;
 
-    stack = GET_Z_FIELD(ring_addr);
-    block = GET_X_FIELD(ring_addr);
+    stack = GETFIELD(PPC_BITMASK(40, 43), ring_addr);
+    block = GETFIELD(PPC_BITMASK(44, 47), ring_addr);
 
     switch (stack) {
     case 1 ... 2:
@@ -170,7 +186,7 @@ static hwaddr ring_to_scom(hwaddr ring_addr)
         goto unimplemented;
     }
 
-    scom_offset += GET_ADDR_FIELD(ring_addr) >> 3;
+    scom_offset += GETFIELD(PPC_BITMASK(48, 63), ring_addr) >> 3;
     printf("ring addr=%lx => scom offset=%lx\n", ring_addr, scom_offset);
     assert(scom_offset <= PNV9_XSCOM_NPU_SIZE1);
     return scom_offset;
@@ -185,12 +201,12 @@ static hwaddr indirect_to_scom(hwaddr indirect_addr)
     int indirect_len;
     hwaddr ring_addr;
 
-    indirect_len = (indirect_addr >> 38) & 0b11;
+    indirect_len = GETFIELD(PPC_BITMASK(24, 25), indirect_addr);
     if (indirect_len != 0b11) {
         qemu_log_mask(LOG_UNIMP, "NPU: only 8 byte mmio access supported\n");
         return INVALID_SCOM_OFFSET;
     }
-    ring_addr = indirect_addr >> 40;
+    ring_addr = GETFIELD(PPC_BITMASK(0, 23), indirect_addr);
     return ring_to_scom(ring_addr);
 }
 
@@ -214,12 +230,43 @@ static uint64_t pnv_npu2_xscom_read(void *opaque, hwaddr addr, unsigned size)
     return val;
 }
 
+static void update_fence_state(PnvNpu2 *npu, int brick, int val)
+{
+    hwaddr offset;
+    uint64_t fence_mask;
+
+    printf("Setting fence state of brick %d to %d\n", brick, val);
+    switch (brick) {
+    case 2:
+        offset = NPU2_STACK1_CQ_CTL_STATUS;
+        fence_mask = PPC_BITMASK(48, 49);
+        break;
+    case 3:
+        offset = NPU2_STACK1_CQ_CTL_STATUS;
+        fence_mask = PPC_BITMASK(50, 51);
+        break;
+    case 4:
+        offset = NPU2_STACK2_CQ_CTL_STATUS;
+        fence_mask = PPC_BITMASK(48, 49);
+        break;
+    case 5:
+        offset = NPU2_STACK2_CQ_CTL_STATUS;
+        fence_mask = PPC_BITMASK(50, 51);
+        break;
+    default:
+        assert(false);
+    }
+    npu->scom[offset] = SETFIELD(fence_mask, npu->scom[offset], val);
+    npu->fence_state[brick] = !!val;
+}
+
 static void pnv_npu2_xscom_write(void *opaque, hwaddr addr,
                                  uint64_t val, unsigned size)
 {
     PnvNpu2 *npu = PNV_NPU2(opaque);
     hwaddr scom_offset;
-    int reg = addr >> 3;
+    int brick, reg = addr >> 3;
+    uint64_t subval;
 
     if (reg >= PNV9_XSCOM_NPU_SIZE1)
         return;
@@ -230,6 +277,14 @@ static void pnv_npu2_xscom_write(void *opaque, hwaddr addr,
         scom_offset = indirect_to_scom(npu->scom[NPU2_MISC_SCOM_IND_SCOM_ADDR]);
         pnv_npu2_xscom_write(opaque, scom_offset << 3, val, size);
         return;
+    case NPU2_STACK1_CQ_CTL_FENCE_CONTROL0:
+    case NPU2_STACK1_CQ_CTL_FENCE_CONTROL1:
+    case NPU2_STACK2_CQ_CTL_FENCE_CONTROL0:
+    case NPU2_STACK2_CQ_CTL_FENCE_CONTROL1:
+        brick = (reg / 0x200) * 2 + reg % 2;
+        subval = GETFIELD(PPC_BITMASK(0, 1), val);
+        update_fence_state(npu, brick, subval);
+        break;
     }
 }
 
