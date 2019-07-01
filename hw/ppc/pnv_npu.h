@@ -29,6 +29,7 @@ typedef struct PnvNpu2 {
     DeviceState parent;
 
     MemoryRegion xscom_regs1;
+    uint64_t scom[0x702 /* fxb PNV9_XSCOM_NPU_SIZE1 */];
     MemoryRegion xscom_regs2;
 } PnvNpu2;
 

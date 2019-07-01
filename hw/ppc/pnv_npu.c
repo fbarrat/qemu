@@ -28,6 +28,9 @@
 
 #include <libfdt.h>
 
+#define NPU2_MISC_SCOM_IND_SCOM_ADDR		0x68e
+#define NPU2_MISC_SCOM_IND_SCOM_DATA		0x68f
+
 static void dt_add_npu_link(void *fdt, int offset, int group, int link_index)
 {
     char *name;
@@ -87,20 +90,147 @@ static int pnv_npu2_dt_xscom(PnvXScomInterface *dev, void *fdt,
     return 0;
 }
 
+#define GET_Z_FIELD(addr) ((addr & 0xF00000) >> 20)
+#define GET_X_FIELD(addr) ((addr & 0x0F0000) >> 16)
+#define GET_ADDR_FIELD(addr) (addr & 0xFFFF)
+#define INVALID_SCOM_OFFSET (~0ULL)
+#define INVALID_SCOM_DATA (~0ULL)
+
+static hwaddr ring_to_scom(hwaddr ring_addr)
+{
+    int stack, block;
+    hwaddr scom_offset;
+
+    stack = GET_Z_FIELD(ring_addr);
+    block = GET_X_FIELD(ring_addr);
+
+    switch (stack) {
+    case 1 ... 2:
+        scom_offset = 0x200 * stack;
+        if (block == 0xC) /* User OTL0 */
+            scom_offset += 0x178;
+        else if (block == 0xD) /* User OTL1 */
+            scom_offset += 0x1A8;
+        else
+            goto unimplemented;
+        break;
+    case 3:
+        if (block == 0x3) /* MISC */
+            scom_offset = 0x680;
+        else
+            goto unimplemented;
+        break;
+    case 4 ... 6:
+        scom_offset = 0x200 * (stack - 4);
+        switch (block) {
+        case 0 ... 3: /* CQ SM */
+            scom_offset += 0x30 * block;
+            break;
+        case 4: /* CQ CTL */
+            scom_offset += 0xC0;
+            break;
+        case 5: /* CQ DAT */
+            scom_offset += 0xF0;
+            break;
+        case 0xC: /* OTL0 */
+            if (stack == 4)
+                goto unimplemented;
+            scom_offset += 0x150;
+            break;
+        case 0xD: /* OTL1 */
+            if (stack == 4)
+                goto unimplemented;
+            scom_offset += 0x180;
+            break;
+        case 0xE: /* XSL */
+            if (stack == 4)
+                goto unimplemented;
+            scom_offset += 0x1B0;
+            break;
+        default:
+            goto unimplemented;
+        }
+        break;
+    case 7:
+        switch (block) {
+        case 0: /* ATS */
+            scom_offset = 0x600;
+            break;
+        case 1: /* XTS */
+            scom_offset = 0x640;
+            break;
+        case 2 ... 3: /* MISC */
+            scom_offset = 0x680;
+            break;
+        default:
+            goto unimplemented;
+        }
+        break;
+    default:
+        goto unimplemented;
+    }
+
+    scom_offset += GET_ADDR_FIELD(ring_addr) >> 3;
+    printf("ring addr=%lx => scom offset=%lx\n", ring_addr, scom_offset);
+    assert(scom_offset <= PNV9_XSCOM_NPU_SIZE1);
+    return scom_offset;
+
+unimplemented:
+    qemu_log_mask(LOG_UNIMP, "NPU: untranslated ring addr %lx\n", ring_addr);
+    return INVALID_SCOM_OFFSET;
+}
+
+static hwaddr indirect_to_scom(hwaddr indirect_addr)
+{
+    int indirect_len;
+    hwaddr ring_addr;
+
+    indirect_len = (indirect_addr >> 38) & 0b11;
+    if (indirect_len != 0b11) {
+        qemu_log_mask(LOG_UNIMP, "NPU: only 8 byte mmio access supported\n");
+        return INVALID_SCOM_OFFSET;
+    }
+    ring_addr = indirect_addr >> 40;
+    return ring_to_scom(ring_addr);
+}
 
 static uint64_t pnv_npu2_xscom_read(void *opaque, hwaddr addr, unsigned size)
 {
-//    PnvNpu2 *npu = PNV_NPU2(opaque);
+    PnvNpu2 *npu = PNV_NPU2(opaque);
+    hwaddr scom_offset;
+    int reg = addr >> 3;
+    uint64_t val;
 
-    printf("fxb 0 xscom read %lx\n", addr);
-    return 0;
+    if (reg >= PNV9_XSCOM_NPU_SIZE1)
+        return INVALID_SCOM_DATA;
+
+    val = npu->scom[reg];
+    switch(reg) {
+        case NPU2_MISC_SCOM_IND_SCOM_DATA:
+            scom_offset = indirect_to_scom(npu->scom[NPU2_MISC_SCOM_IND_SCOM_ADDR]);
+            return pnv_npu2_xscom_read(opaque, scom_offset << 3, size);
+    }
+
+    return val;
 }
 
 static void pnv_npu2_xscom_write(void *opaque, hwaddr addr,
                                  uint64_t val, unsigned size)
 {
-//    PnvNpu2 *npu = PNV_NPU2(opaque);
-    printf("fxb 0 xscom write %lx\n", addr);
+    PnvNpu2 *npu = PNV_NPU2(opaque);
+    hwaddr scom_offset;
+    int reg = addr >> 3;
+
+    if (reg >= PNV9_XSCOM_NPU_SIZE1)
+        return;
+
+    npu->scom[reg] = val;
+    switch(reg) {
+    case NPU2_MISC_SCOM_IND_SCOM_DATA:
+        scom_offset = indirect_to_scom(npu->scom[NPU2_MISC_SCOM_IND_SCOM_ADDR]);
+        pnv_npu2_xscom_write(opaque, scom_offset << 3, val, size);
+        return;
+    }
 }
 
 static const MemoryRegionOps pnv_npu2_xscom_ops = {
@@ -122,7 +252,7 @@ static void pnv_npu2_realize(DeviceState *dev, Error **errp)
                           PNV9_XSCOM_NPU_SIZE1);
     pnv_xscom_region_init(&npu->xscom_regs2, OBJECT(npu),
                           &pnv_npu2_xscom_ops, npu, "xscom2-npu2",
-                          PNV9_XSCOM_NPU_SIZE2);
+                          PNV9_XSCOM_NPU_SIZE2); // fxb need new ops to differentiate scom areas
 }
 
 static void pnv_npu2_class_init(ObjectClass *klass, void *data)
