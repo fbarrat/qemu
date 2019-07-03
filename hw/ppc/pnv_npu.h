@@ -25,7 +25,9 @@
 #define PNV_NPU2(obj)                           \
     OBJECT_CHECK(PnvNpu2, (obj), TYPE_PNV_NPU2)
 
+#define NPU2_STACK_COUNT 3
 #define NPU2_BRICK_COUNT 6
+
 typedef struct PnvNpu2 {
     DeviceState parent;
 
@@ -36,6 +38,10 @@ typedef struct PnvNpu2 {
     MemoryRegion xscom_regs1;
     uint64_t scom[0x702 /* fxb PNV9_XSCOM_NPU_SIZE1 */];
     MemoryRegion xscom_regs2;
+
+    MemoryRegion genid_mr[NPU2_STACK_COUNT];
+    uint64_t genid_bar[NPU2_STACK_COUNT];
+
     bool fence_state[NPU2_BRICK_COUNT];
 } PnvNpu2;
 

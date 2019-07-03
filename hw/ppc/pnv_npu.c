@@ -28,6 +28,15 @@
 
 #include <libfdt.h>
 
+#define NPU2_STACK1_CS_SM0_GENID_BAR            0x207
+#define NPU2_STACK1_CS_SM1_GENID_BAR            0x237
+#define NPU2_STACK1_CS_SM2_GENID_BAR            0x267
+#define NPU2_STACK1_CS_SM3_GENID_BAR            0x297
+#define NPU2_STACK2_CS_SM0_GENID_BAR            0x407
+#define NPU2_STACK2_CS_SM1_GENID_BAR            0x437
+#define NPU2_STACK2_CS_SM2_GENID_BAR            0x467
+#define NPU2_STACK2_CS_SM3_GENID_BAR            0x497
+#define  NPU2_GENID_BAR_EN                      PPC_BIT(0)
 #define NPU2_MISC_SCOM_IND_SCOM_ADDR		0x68e
 #define NPU2_MISC_SCOM_IND_SCOM_DATA		0x68f
 #define NPU2_STACK1_CQ_CTL_FENCE_CONTROL0	0x2e8
@@ -39,6 +48,10 @@
 
 #define OBUS_ODL0_STATUS 0x2c
 #define OBUS_ODL1_STATUS 0x2d
+
+#define INVALID_SCOM_OFFSET (~0ULL)
+#define INVALID_SCOM_DATA (~0ULL)
+#define INVALID_MMIO_DATA (~0ULL)
 
 /* TODO: fix GETFIELD/SETFIELD macro definitions */
 #if HOST_LONG_BITS == 32
@@ -111,9 +124,6 @@ static int pnv_npu2_dt_xscom(PnvXScomInterface *dev, void *fdt,
     dt_add_npu_link(fdt, npu_offset, 2, 3);
     return 0;
 }
-
-#define INVALID_SCOM_OFFSET (~0ULL)
-#define INVALID_SCOM_DATA (~0ULL)
 
 static hwaddr ring_to_scom(hwaddr ring_addr)
 {
@@ -243,6 +253,32 @@ static void update_fence_state(PnvNpu2 *npu, int brick, int val)
     npu->fence_state[brick] = !!val;
 }
 
+static void set_genid_bar(PnvNpu2 *npu, int stack, uint64_t val)
+{
+    MemoryRegion *sysmem = get_system_memory();
+    uint64_t addr;
+
+    assert(stack == 1 || stack == 2);
+
+    /*
+     * The genid bar is replicated in each SMx block, so we'll get 4
+     * identical operations each time the bar is set. So don't do
+     * anything is we're writing the exact same value.
+     */
+    if (val == npu->genid_bar[stack])
+        return;
+
+    if (npu->genid_bar[stack])
+        memory_region_del_subregion(sysmem, &npu->genid_mr[stack]);
+
+    npu->genid_bar[stack] = val;
+    addr = (GETFIELD(PPC_BITMASK(3, 35), val) << 16 ) | 0x6000000000000;
+    if (val & NPU2_GENID_BAR_EN) {
+        printf("mapping genid bar at %lx\n", addr);
+        memory_region_add_subregion(sysmem, addr, &npu->genid_mr[stack]);
+    }
+}
+
 static uint64_t pnv_npu2_xscom1_read(void *opaque, hwaddr addr, unsigned size)
 {
     PnvNpu2 *npu = PNV_NPU2(opaque);
@@ -264,7 +300,7 @@ static uint64_t pnv_npu2_xscom1_read(void *opaque, hwaddr addr, unsigned size)
 }
 
 static void pnv_npu2_xscom1_write(void *opaque, hwaddr addr,
-                                 uint64_t val, unsigned size)
+                                  uint64_t val, unsigned size)
 {
     PnvNpu2 *npu = PNV_NPU2(opaque);
     hwaddr scom_offset;
@@ -287,6 +323,18 @@ static void pnv_npu2_xscom1_write(void *opaque, hwaddr addr,
         brick = (reg / 0x200) * 2 + reg % 2;
         subval = GETFIELD(PPC_BITMASK(0, 1), val);
         update_fence_state(npu, brick, subval);
+        break;
+    case NPU2_STACK1_CS_SM0_GENID_BAR:
+    case NPU2_STACK1_CS_SM1_GENID_BAR:
+    case NPU2_STACK1_CS_SM2_GENID_BAR:
+    case NPU2_STACK1_CS_SM3_GENID_BAR:
+        set_genid_bar(npu, 1, val);
+        break;
+    case NPU2_STACK2_CS_SM0_GENID_BAR:
+    case NPU2_STACK2_CS_SM1_GENID_BAR:
+    case NPU2_STACK2_CS_SM2_GENID_BAR:
+    case NPU2_STACK2_CS_SM3_GENID_BAR:
+        set_genid_bar(npu, 2, val);
         break;
     }
 }
@@ -421,10 +469,39 @@ static const MemoryRegionOps pnv_obus0_xscom_indirect_ops = {
     .endianness = DEVICE_BIG_ENDIAN,
 };
 
+static uint64_t pnv_npu2_genid_mmio_read(void *opaque, hwaddr addr,
+                                         unsigned size)
+{
+    printf("reading genid mmio addr=%lx, size %d\n", addr, size);
+
+    return INVALID_MMIO_DATA;
+}
+
+static void pnv_npu2_genid_mmio_write(void *opaque, hwaddr addr,
+                                      uint64_t val, unsigned size)
+{
+    printf("writing genid mmio addr=%lx, size %d\n", addr, size);
+}
+
+static const MemoryRegionOps pnv_npu2_genid_mmio_ops = {
+    .read = pnv_npu2_genid_mmio_read,
+    .write = pnv_npu2_genid_mmio_write,
+    .endianness = DEVICE_BIG_ENDIAN,
+    .valid = {
+        .min_access_size = 1,
+        .max_access_size = 8,
+    },
+    .impl = {
+        .min_access_size = 1,
+        .max_access_size = 8,
+    },
+};
+
 static void pnv_npu2_realize(DeviceState *dev, Error **errp)
 {
     PnvNpu2 *npu = PNV_NPU2(dev);
 
+    /* NPU xscom region */
     pnv_xscom_region_init(&npu->xscom_regs1, OBJECT(npu),
                           &pnv_npu2_xscom1_ops, npu,
                           "xscom1-npu2",
@@ -445,6 +522,10 @@ static void pnv_npu2_realize(DeviceState *dev, Error **errp)
                           &pnv_obus0_xscom_indirect_ops, npu,
                           "xscom-obus0-indirect",
                           PNV9_XSCOM_OBUS_INDIRECT_SIZE);
+
+    /* generation ID bar, used for config space access on opencapi */
+    memory_region_init_io(&npu->genid_mr[1], OBJECT(npu), &pnv_npu2_genid_mmio_ops,
+                          npu, "genid-stack1", PNV9_NPU_GENID_SIZE);
 }
 
 static void pnv_npu2_class_init(ObjectClass *klass, void *data)

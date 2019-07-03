@@ -273,6 +273,10 @@ int pnv_bmc_hiomap(IPMIBmc *bmc);
 #define PNV9_LPCM_SIZE               0x0000000100000000ull
 #define PNV9_LPCM_BASE(chip)         PNV9_CHIP_BASE(chip, 0x0006030000000000ull)
 
+#define PNV9_NPU_GENID_SIZE          0x0000000000020000ull
+// fxb BASE is used to set device property. Useless?
+#define PNV9_NPU_GENID_BASE(chip)    PNV9_CHIP_BASE(chip, 0x00060302016e0000ull)
+
 #define PNV9_PSIHB_SIZE              0x0000000000100000ull
 #define PNV9_PSIHB_BASE(chip)        PNV9_CHIP_BASE(chip, 0x0006030203000000ull)
 
