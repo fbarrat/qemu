@@ -28,6 +28,7 @@
 
 #include <libfdt.h>
 
+/* SCOM registers */
 #define NPU2_STACK1_CS_SM0_GENID_BAR            0x207
 #define NPU2_STACK1_CS_SM1_GENID_BAR            0x237
 #define NPU2_STACK1_CS_SM2_GENID_BAR            0x267
@@ -48,6 +49,17 @@
 
 #define OBUS_ODL0_STATUS 0x2c
 #define OBUS_ODL1_STATUS 0x2d
+
+/* genid mmio addresses */
+#define NPU2_MMIO_GENID_OTL0_ADDR     0
+#define  NPU2_MMIO_GENID_ADDR_EN      PPC_BIT(0)
+#define  NPU2_MMIO_GENID_ADDR_BUS     PPC_BITMASK(4, 11)
+#define  NPU2_MMIO_GENID_ADDR_DEV     PPC_BITMASK(12, 16)
+#define  NPU2_MMIO_GENID_ADDR_FUNC    PPC_BITMASK(17, 19)
+#define  NPU2_MMIO_GENID_ADDR_REG     PPC_BITMASK(20, 31)
+#define NPU2_MMIO_GENID_OTL0_DATA     0x80
+#define NPU2_MMIO_GENID_OTL1_ADDR     0x100
+#define NPU2_MMIO_GENID_OTL1_DATA     0x180
 
 #define INVALID_SCOM_OFFSET (~0ULL)
 #define INVALID_SCOM_DATA (~0ULL)
@@ -469,18 +481,109 @@ static const MemoryRegionOps pnv_obus0_xscom_indirect_ops = {
     .endianness = DEVICE_BIG_ENDIAN,
 };
 
+static uint64_t read_cfg(PnvNpu2 *npu, int brick, uint64_t addr, int offset,
+                         unsigned size)
+{
+    int bus, dev, fn, reg;
+
+    if (!npu->afu[brick]) {
+        return INVALID_MMIO_DATA;
+    }
+    if (!(addr & NPU2_MMIO_GENID_ADDR_EN)) {
+        return INVALID_MMIO_DATA;
+    }
+
+    bus = GETFIELD(NPU2_MMIO_GENID_ADDR_BUS, addr);
+    dev = GETFIELD(NPU2_MMIO_GENID_ADDR_DEV, addr);
+    fn = GETFIELD(NPU2_MMIO_GENID_ADDR_FUNC, addr);
+    reg = GETFIELD(NPU2_MMIO_GENID_ADDR_REG, addr);
+
+    if (bus || dev) {
+        return INVALID_MMIO_DATA;
+    }
+
+    return npu->afu[brick]->read_cfg(fn, reg + offset, size);
+}
+
 static uint64_t pnv_npu2_genid_mmio_read(void *opaque, hwaddr addr,
                                          unsigned size)
 {
-    printf("reading genid mmio addr=%lx, size %d\n", addr, size);
+    PnvNpu2 *npu = PNV_NPU2(opaque);
+    int brick, offset;
 
+    printf("reading genid mmio addr=%lx, size %d\n", addr, size);
+    switch (addr) {
+    case NPU2_MMIO_GENID_OTL0_DATA:
+    case NPU2_MMIO_GENID_OTL0_DATA + 1:
+    case NPU2_MMIO_GENID_OTL0_DATA + 2:
+    case NPU2_MMIO_GENID_OTL0_DATA + 3:
+        brick = 2;
+        offset = addr - NPU2_MMIO_GENID_OTL0_DATA;
+        return read_cfg(npu, brick, npu->config_space_addr[brick], offset, size);
+    case NPU2_MMIO_GENID_OTL1_DATA:
+    case NPU2_MMIO_GENID_OTL1_DATA + 1:
+    case NPU2_MMIO_GENID_OTL1_DATA + 2:
+    case NPU2_MMIO_GENID_OTL1_DATA + 3:
+        brick = 3;
+        offset = addr - NPU2_MMIO_GENID_OTL1_DATA;
+        return read_cfg(npu, brick, npu->config_space_addr[brick], offset, size);
+    default:
+        qemu_log_mask(LOG_GUEST_ERROR,
+                      "genid mmio read at unexpected offset 0x%lx\n", addr);
+    }
     return INVALID_MMIO_DATA;
+}
+
+static void write_cfg(PnvNpu2 *npu, int brick, uint64_t addr, uint64_t val,
+                      unsigned size)
+{
+    int bus, dev, fn, reg;
+
+    if (!npu->afu[brick]) {
+        return;
+    }
+    if (!(addr & NPU2_MMIO_GENID_ADDR_EN)) {
+        return;
+    }
+
+    bus = GETFIELD(NPU2_MMIO_GENID_ADDR_BUS, addr);
+    dev = GETFIELD(NPU2_MMIO_GENID_ADDR_DEV, addr);
+    fn = GETFIELD(NPU2_MMIO_GENID_ADDR_FUNC, addr);
+    reg = GETFIELD(NPU2_MMIO_GENID_ADDR_REG, addr);
+
+    if (bus || dev) {
+        return;
+    }
+
+    npu->afu[brick]->write_cfg(fn, reg, val, size);
 }
 
 static void pnv_npu2_genid_mmio_write(void *opaque, hwaddr addr,
                                       uint64_t val, unsigned size)
 {
+    PnvNpu2 *npu = PNV_NPU2(opaque);
+    int brick;
+
     printf("writing genid mmio addr=%lx, size %d\n", addr, size);
+    switch (addr) {
+    case NPU2_MMIO_GENID_OTL0_ADDR:
+        npu->config_space_addr[2] = val;
+        break;
+    case NPU2_MMIO_GENID_OTL1_ADDR:
+        npu->config_space_addr[3] = val;
+        break;
+    case NPU2_MMIO_GENID_OTL0_DATA:
+        brick = 2;
+        write_cfg(npu, brick, npu->config_space_addr[brick], val, size);
+        break;
+    case NPU2_MMIO_GENID_OTL1_DATA:
+        brick = 3;
+        write_cfg(npu, brick, npu->config_space_addr[brick], val, size);
+        break;
+    default:
+        qemu_log_mask(LOG_GUEST_ERROR,
+                      "genid mmio read at unexpected offset 0x%lx\n", addr);
+    }
 }
 
 static const MemoryRegionOps pnv_npu2_genid_mmio_ops = {
@@ -526,6 +629,8 @@ static void pnv_npu2_realize(DeviceState *dev, Error **errp)
     /* generation ID bar, used for config space access on opencapi */
     memory_region_init_io(&npu->genid_mr[1], OBJECT(npu), &pnv_npu2_genid_mmio_ops,
                           npu, "genid-stack1", PNV9_NPU_GENID_SIZE);
+
+    npu->afu[2] = &ocapi_afu_memcpy;
 }
 
 static void pnv_npu2_class_init(ObjectClass *klass, void *data)

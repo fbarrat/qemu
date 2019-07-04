@@ -20,6 +20,8 @@
 #ifndef PPC_PNV_NPU_H
 #define PPC_PNV_NPU_H
 
+#include "hw/ppc/ocapi_afu.h"
+
 #define TYPE_PNV_NPU2 "pnv-npu2"
 
 #define PNV_NPU2(obj)                           \
@@ -43,6 +45,9 @@ typedef struct PnvNpu2 {
     uint64_t genid_bar[NPU2_STACK_COUNT];
 
     bool fence_state[NPU2_BRICK_COUNT];
+
+    ocapi_afu_t *afu[NPU2_BRICK_COUNT];
+    uint64_t config_space_addr[NPU2_BRICK_COUNT];
 } PnvNpu2;
 
 #define PNV_NPU2_CLASS(klass)                                   \

@@ -10,7 +10,7 @@ obj-$(CONFIG_SPAPR_RNG) +=  spapr_rng.o
 # IBM PowerNV
 obj-$(CONFIG_POWERNV) += pnv.o pnv_xscom.o pnv_core.o pnv_lpc.o
 obj-$(CONFIG_POWERNV) += pnv_psi.o pnv_occ.o pnv_bmc.o pnv_pnor.o
-obj-$(CONFIG_POWERNV) += pnv_npu.o
+obj-$(CONFIG_POWERNV) += pnv_npu.o ocapi_afu_memcpy.o
 ifeq ($(CONFIG_PCI)$(CONFIG_PSERIES)$(CONFIG_LINUX), yyy)
 obj-y += spapr_pci_vfio.o spapr_pci_nvlink2.o
 endif
