@@ -600,6 +600,7 @@ static void pnv_chip_power9_pic_print_info(PnvChip *chip, Monitor *mon)
 static void pnv_init(MachineState *machine)
 {
     PnvMachineState *pnv = PNV_MACHINE(machine);
+    MachineClass *mc = MACHINE_GET_CLASS(machine);
     MemoryRegion *ram;
     char *fw_filename;
     long fw_size;
@@ -659,15 +660,24 @@ static void pnv_init(MachineState *machine)
         }
     }
 
-    /* Create the processor chips */
-    i = strlen(machine->cpu_type) - strlen(POWERPC_CPU_TYPE_SUFFIX);
-    chip_typename = g_strdup_printf(PNV_CHIP_TYPE_NAME("%.*s"),
-                                    i, machine->cpu_type);
-    if (!object_class_by_name(chip_typename)) {
-        error_report("invalid CPU model '%.*s' for %s machine",
-                     i, machine->cpu_type, MACHINE_GET_CLASS(machine)->name);
+    /*
+     * Do a sanity check on the specified CPU to check compatibility
+     * with the machine default. In the future, we might want to
+     * create the PnvChip with a compatible CPU model but for now, we
+     * use the machine default.
+     */
+    if (object_class_by_name(mc->default_cpu_type) !=
+        object_class_by_name(machine->cpu_type)) {
+        error_report("invalid CPU model '%s' for %s machine",
+                     machine->cpu_type, mc->name);
         exit(1);
     }
+
+    /* Create the processor chips */
+    i = strlen(mc->default_cpu_type) - strlen(POWERPC_CPU_TYPE_SUFFIX);
+    chip_typename = g_strdup_printf(PNV_CHIP_TYPE_NAME("%.*s"),
+                                    i, mc->default_cpu_type);
+    assert(object_class_by_name(chip_typename));
 
     pnv->chips = g_new0(PnvChip *, pnv->num_chips);
     for (i = 0; i < pnv->num_chips; i++) {
@@ -1343,25 +1353,69 @@ static void pnv_machine_class_props_init(ObjectClass *oc)
                               NULL);
 }
 
-static void pnv_machine_class_init(ObjectClass *oc, void *data)
+static void pnv_machine_power8e_class_init(ObjectClass *oc, void *data)
 {
     MachineClass *mc = MACHINE_CLASS(oc);
     XICSFabricClass *xic = XICS_FABRIC_CLASS(oc);
+
+    mc->desc = "IBM PowerNV (Non-Virtualized) POWER8E";
+    mc->default_cpu_type = POWERPC_CPU_TYPE_NAME("power8e_v2.1");
+
+    xic->icp_get = pnv_icp_get;
+    xic->ics_get = pnv_ics_get;
+    xic->ics_resend = pnv_ics_resend;
+}
+
+static void pnv_machine_power8_class_init(ObjectClass *oc, void *data)
+{
+    MachineClass *mc = MACHINE_CLASS(oc);
+    XICSFabricClass *xic = XICS_FABRIC_CLASS(oc);
+
+    mc->desc = "IBM PowerNV (Non-Virtualized) POWER8";
+    mc->default_cpu_type = POWERPC_CPU_TYPE_NAME("power8_v2.0");
+
+    xic->icp_get = pnv_icp_get;
+    xic->ics_get = pnv_ics_get;
+    xic->ics_resend = pnv_ics_resend;
+}
+
+static void pnv_machine_power8nvl_class_init(ObjectClass *oc, void *data)
+{
+    MachineClass *mc = MACHINE_CLASS(oc);
+    XICSFabricClass *xic = XICS_FABRIC_CLASS(oc);
+
+    mc->desc = "IBM PowerNV (Non-Virtualized) POWER8NVL";
+    mc->default_cpu_type = POWERPC_CPU_TYPE_NAME("power8nvl_v1.0");
+
+    xic->icp_get = pnv_icp_get;
+    xic->ics_get = pnv_ics_get;
+    xic->ics_resend = pnv_ics_resend;
+}
+
+static void pnv_machine_power9_class_init(ObjectClass *oc, void *data)
+{
+    MachineClass *mc = MACHINE_CLASS(oc);
+
+    mc->desc = "IBM PowerNV (Non-Virtualized) POWER9";
+    mc->default_cpu_type = POWERPC_CPU_TYPE_NAME("power9_v2.0");
+
+    mc->alias = "powernv";
+}
+
+static void pnv_machine_class_init(ObjectClass *oc, void *data)
+{
+    MachineClass *mc = MACHINE_CLASS(oc);
     InterruptStatsProviderClass *ispc = INTERRUPT_STATS_PROVIDER_CLASS(oc);
 
     mc->desc = "IBM PowerNV (Non-Virtualized)";
     mc->init = pnv_init;
     mc->reset = pnv_reset;
     mc->max_cpus = MAX_CPUS;
-    mc->default_cpu_type = POWERPC_CPU_TYPE_NAME("power8_v2.0");
     mc->block_default_type = IF_IDE; /* Pnv provides a AHCI device for
                                       * storage */
     mc->no_parallel = 1;
     mc->default_boot_order = NULL;
     mc->default_ram_size = 2 * GiB;
-    xic->icp_get = pnv_icp_get;
-    xic->ics_get = pnv_ics_get;
-    xic->ics_resend = pnv_ics_resend;
     ispc->print_info = pnv_pic_print_info;
 
     pnv_machine_class_props_init(oc);
@@ -1381,10 +1435,29 @@ static void pnv_machine_class_init(ObjectClass *oc, void *data)
         .parent        = TYPE_PNV9_CHIP,          \
     }
 
+#define DEFINE_PNV_MACHINE_TYPE(cpu, class_initfn)      \
+    {                                                   \
+        .name          = MACHINE_TYPE_NAME(cpu),        \
+        .parent        = TYPE_PNV_MACHINE,              \
+        .instance_size = sizeof(PnvMachineState),       \
+        .instance_init = pnv_machine_instance_init,     \
+        .class_init    = class_initfn,                  \
+        .interfaces = (InterfaceInfo[]) {               \
+            { TYPE_XICS_FABRIC },                       \
+            { TYPE_INTERRUPT_STATS_PROVIDER },          \
+            { },                                        \
+        },                                              \
+    }
+
 static const TypeInfo types[] = {
+    DEFINE_PNV_MACHINE_TYPE("powernv8e", pnv_machine_power8e_class_init),
+    DEFINE_PNV_MACHINE_TYPE("powernv8", pnv_machine_power8_class_init),
+    DEFINE_PNV_MACHINE_TYPE("powernv8nvl", pnv_machine_power8nvl_class_init),
+    DEFINE_PNV_MACHINE_TYPE("powernv9", pnv_machine_power9_class_init),
     {
         .name          = TYPE_PNV_MACHINE,
         .parent        = TYPE_MACHINE,
+        .abstract       = true,
         .instance_size = sizeof(PnvMachineState),
         .instance_init = pnv_machine_instance_init,
         .class_init    = pnv_machine_class_init,
