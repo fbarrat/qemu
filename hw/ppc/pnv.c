@@ -1633,7 +1633,7 @@ static void pnv_chip_power10_quad_realize(Pnv10Chip *chip10, Error **errp)
     }
 }
 
-static void pnv_chip_power10_phb_realize(PnvChip *chip, Error **errp)
+static void pnv_chip_power10_pec_realize(PnvChip *chip, Error **errp)
 {
     Pnv10Chip *chip10 = PNV10_CHIP(chip);
     int i;
@@ -1763,7 +1763,7 @@ static void pnv_chip_power10_realize(DeviceState *dev, Error **errp)
                                 &chip10->homer.regs);
 
     /* PHBs */
-    pnv_chip_power10_phb_realize(chip, &local_err);
+    pnv_chip_power10_pec_realize(chip, &local_err);
     if (local_err) {
         error_propagate(errp, local_err);
         return;
