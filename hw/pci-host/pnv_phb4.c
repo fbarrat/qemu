@@ -25,11 +25,11 @@
 #include "trace.h"
 
 #define phb_error(phb, fmt, ...)                                        \
-    qemu_log_mask(LOG_GUEST_ERROR, "phb4[%d:%d]: " fmt "\n",            \
+    qemu_log_mask(LOG_GUEST_ERROR, "phb[%d:%d]: " fmt "\n",            \
                   (phb)->chip_id, (phb)->phb_id, ## __VA_ARGS__)
 
 #define phb_pec_error(pec, fmt, ...)                                    \
-    qemu_log_mask(LOG_GUEST_ERROR, "phb4_pec[%d:%d]: " fmt "\n",        \
+    qemu_log_mask(LOG_GUEST_ERROR, "phb_pec[%d:%d]: " fmt "\n",         \
                   (pec)->chip_id, (pec)->index, ## __VA_ARGS__)
 
 /*
@@ -243,7 +243,7 @@ static void pnv_phb4_check_mbt(PnvPHB4 *phb, uint32_t index)
     }
 
     /* Create alias (better name ?) */
-    snprintf(name, sizeof(name), "phb4-mbar%d", index);
+    snprintf(name, sizeof(name), "phb-mbar%d", index);
     memory_region_init_alias(&phb->mr_mmio[index], OBJECT(phb), name,
                              &phb->pci_mmio, start, size);
     memory_region_add_subregion(parent, base, &phb->mr_mmio[index]);
@@ -650,7 +650,7 @@ static void pnv_phb4_reg_write(void *opaque, hwaddr off, uint64_t val,
 
     /* Noise on anything else */
     default:
-        qemu_log_mask(LOG_UNIMP, "phb4: reg_write 0x%"PRIx64"=%"PRIx64"\n",
+        qemu_log_mask(LOG_UNIMP, "phb: reg_write 0x%"PRIx64"=%"PRIx64"\n",
                       off, val);
     }
 }
@@ -735,7 +735,7 @@ static uint64_t pnv_phb4_reg_read(void *opaque, hwaddr off, unsigned size)
 
     /* Noise on anything else */
     default:
-        qemu_log_mask(LOG_UNIMP, "phb4: reg_read 0x%"PRIx64"=%"PRIx64"\n",
+        qemu_log_mask(LOG_UNIMP, "phb: reg_read 0x%"PRIx64"=%"PRIx64"\n",
                       off, val);
     }
     return val;
@@ -798,7 +798,7 @@ static uint64_t pnv_phb4_xscom_read(void *opaque, hwaddr addr, unsigned size)
         return pnv_phb4_reg_read(phb, offset, size);
 
     default:
-        qemu_log_mask(LOG_UNIMP, "phb4: xscom_read 0x%"HWADDR_PRIx"\n", addr);
+        qemu_log_mask(LOG_UNIMP, "phb: xscom_read 0x%"HWADDR_PRIx"\n", addr);
         return ~0ull;
     }
 }
@@ -851,7 +851,7 @@ static void pnv_phb4_xscom_write(void *opaque, hwaddr addr,
         pnv_phb4_reg_write(phb, offset, val, size);
         break;
     default:
-        qemu_log_mask(LOG_UNIMP, "phb4: xscom_write 0x%"HWADDR_PRIx
+        qemu_log_mask(LOG_UNIMP, "phb: xscom_write 0x%"HWADDR_PRIx
                       "=%"PRIx64"\n", addr, val);
     }
 }
@@ -1082,7 +1082,7 @@ static void pnv_pec_stk_nest_xscom_write(void *opaque, hwaddr addr,
         phb->nest_regs[reg] = val;
         break;
     default:
-        qemu_log_mask(LOG_UNIMP, "phb4_pec: nest_xscom_write 0x%"HWADDR_PRIx
+        qemu_log_mask(LOG_UNIMP, "phb_pec: nest_xscom_write 0x%"HWADDR_PRIx
                       "=%"PRIx64"\n", addr, val);
     }
 }
@@ -1150,7 +1150,7 @@ static void pnv_pec_stk_pci_xscom_write(void *opaque, hwaddr addr,
         phb->pci_regs[reg] = val;
         break;
     default:
-        qemu_log_mask(LOG_UNIMP, "phb4_pec_stk: pci_xscom_write 0x%"HWADDR_PRIx
+        qemu_log_mask(LOG_UNIMP, "phb_pec_stk: pci_xscom_write 0x%"HWADDR_PRIx
                       "=%"PRIx64"\n", addr, val);
     }
 }
@@ -1471,7 +1471,7 @@ static AddressSpace *pnv_phb4_dma_iommu(PCIBus *bus, void *opaque, int devfn)
         ds->devfn = devfn;
         ds->pe_num = PHB_INVALID_PE;
         ds->phb = phb;
-        snprintf(name, sizeof(name), "phb4-%d.%d-iommu", phb->chip_id,
+        snprintf(name, sizeof(name), "phb-%d.%d-iommu", phb->chip_id,
                  phb->phb_id);
         memory_region_init_iommu(&ds->dma_mr, sizeof(ds->dma_mr),
                                  TYPE_PNV_PHB4_IOMMU_MEMORY_REGION,
@@ -1567,7 +1567,7 @@ static PnvPhb4PecState *pnv_phb4_get_pec(PnvChip *chip, PnvPHB4 *phb,
     }
 
     error_setg(errp,
-               "pnv-phb4 chip-id %d index %d didn't match any existing PEC",
+               "pnv-phb chip-id %d index %d didn't match any existing PEC",
                chip_id, index);
 
     return NULL;
@@ -1612,7 +1612,7 @@ static void pnv_phb4_realize(DeviceState *dev, Error **errp)
     phb->big_phb = phb->phb_id == 0 || phb->phb_id == 3;
 
     /* Controller Registers */
-    snprintf(name, sizeof(name), "phb4-%d.%d-regs", phb->chip_id,
+    snprintf(name, sizeof(name), "phb-%d.%d-regs", phb->chip_id,
              phb->phb_id);
     memory_region_init_io(&phb->mr_regs, OBJECT(phb), &pnv_phb4_reg_ops, phb,
                           name, 0x2000);
@@ -1623,11 +1623,11 @@ static void pnv_phb4_realize(DeviceState *dev, Error **errp)
      * initialize one which we never hook up to anything
      */
 
-    snprintf(name, sizeof(name), "phb4-%d.%d-pci-io", phb->chip_id,
+    snprintf(name, sizeof(name), "phb-%d.%d-pci-io", phb->chip_id,
              phb->phb_id);
     memory_region_init(&phb->pci_io, OBJECT(phb), name, 0x10000);
 
-    snprintf(name, sizeof(name), "phb4-%d.%d-pci-mmio", phb->chip_id,
+    snprintf(name, sizeof(name), "phb-%d.%d-pci-mmio", phb->chip_id,
              phb->phb_id);
     memory_region_init(&phb->pci_mmio, OBJECT(phb), name,
                        PCI_MMIO_TOTAL_SIZE);
@@ -1841,7 +1841,7 @@ static void pnv_phb4_root_port_realize(DeviceState *dev, Error **errp)
                                           TYPE_PNV_PHB4);
 
     if (!phb) {
-        error_setg(errp, "%s must be connected to pnv-phb4 buses", dev->id);
+        error_setg(errp, "%s must be connected to pnv-phb buses", dev->id);
         return;
     }
 
@@ -1925,7 +1925,7 @@ void pnv_phb4_pic_print_info(PnvPHB4 *phb, Monitor *mon)
     uint32_t offset = phb->regs[PHB_INT_NOTIFY_INDEX >> 3];
     bool abt = !!(phb->regs[PHB_CTRLR >> 3] & PHB_CTRLR_IRQ_ABT_MODE);
 
-    monitor_printf(mon, "PHB4[%x:%x] Source %08x .. %08x %s @%"HWADDR_PRIx"\n",
+    monitor_printf(mon, "PHB[%x:%x] Source %08x .. %08x %s @%"HWADDR_PRIx"\n",
                    phb->chip_id, phb->phb_id,
                    offset, offset + phb->xsrc.nr_irqs - 1,
                    abt ? "ABT" : "",
