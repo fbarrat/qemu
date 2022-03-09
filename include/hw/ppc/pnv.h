@@ -375,4 +375,7 @@ void pnv_bmc_set_pnor(IPMIBmc *bmc, PnvPnor *pnor);
 #define PNV10_HOMER_BASE(chip)                                           \
     (0x300ffd800000ll + ((uint64_t)(chip)->chip_id) * PNV10_HOMER_SIZE)
 
+#define TYPE_PNV_PHB           "pnv-phb"
+#define TYPE_PNV_PHB_ROOT_PORT "pnv-phb-root-port"
+
 #endif /* PPC_PNV_H */

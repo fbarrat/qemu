@@ -732,6 +732,54 @@ static void pnv_chip_power10_pic_print_info(PnvChip *chip, Monitor *mon)
                          pnv_chip_power9_pic_print_info_child, mon);
 }
 
+static void pnv_phb_class_init(ObjectClass *klass, void *data)
+{
+    DeviceClass *dc = DEVICE_CLASS(klass);
+
+    dc->desc     = "IBM PCIE Host Bridge";
+    dc->user_creatable = true;
+}
+
+static void pnv_phb_root_port_class_init(ObjectClass *klass, void *data)
+{
+    DeviceClass *dc = DEVICE_CLASS(klass);
+
+    dc->desc     = "IBM PHB PCIE Root Port";
+    dc->user_creatable = true;
+}
+
+static void pnv_register_phb_types(const char *phb_type, const char *rp_type)
+{
+    const TypeInfo phb_type_info = {
+        .name = TYPE_PNV_PHB,
+        .parent = phb_type,
+        .class_init = pnv_phb_class_init,
+    };
+    const TypeInfo root_port_type_info = {
+        .name = TYPE_PNV_PHB_ROOT_PORT,
+        .parent = rp_type,
+        .class_init = pnv_phb_root_port_class_init,
+    };
+    type_register(&phb_type_info);
+    type_register(&root_port_type_info);
+}
+
+static void pnv_register_pci_host_bridge(char *chip_typename)
+{
+    if (!strcmp(chip_typename, TYPE_PNV_CHIP_POWER8) ||
+        !strcmp(chip_typename, TYPE_PNV_CHIP_POWER8E) ||
+        !strcmp(chip_typename, TYPE_PNV_CHIP_POWER8NVL)) {
+        pnv_register_phb_types(TYPE_PNV_PHB3,
+                               TYPE_PNV_PHB3_ROOT_PORT);
+    } else if (!strcmp(chip_typename, TYPE_PNV_CHIP_POWER9)) {
+        pnv_register_phb_types(TYPE_PNV_PHB4,
+                               TYPE_PNV_PHB4_ROOT_PORT);
+    } else {
+        pnv_register_phb_types(TYPE_PNV_PHB5,
+                               TYPE_PNV_PHB5_ROOT_PORT);
+    }
+}
+
 /* Always give the first 1GB to chip 0 else we won't boot */
 static uint64_t pnv_chip_get_ram_size(PnvMachineState *pnv, int chip_id)
 {
@@ -898,7 +946,6 @@ static void pnv_init(MachineState *machine)
         }
         sysbus_realize_and_unref(SYS_BUS_DEVICE(chip), &error_fatal);
     }
-    g_free(chip_typename);
 
     /* Instantiate ISA bus on chip 0 */
     pnv->isa_bus = pnv_isa_create(pnv->chips[0], &error_fatal);
@@ -932,6 +979,9 @@ static void pnv_init(MachineState *machine)
      */
     pnv->powerdown_notifier.notify = pnv_powerdown_notify;
     qemu_register_powerdown_notifier(&pnv->powerdown_notifier);
+
+    pnv_register_pci_host_bridge(chip_typename);
+    g_free(chip_typename);
 }
 
 /*
@@ -2145,7 +2195,7 @@ static void pnv_machine_power8_class_init(ObjectClass *oc, void *data)
     pmc->compat = compat;
     pmc->compat_size = sizeof(compat);
 
-    machine_class_allow_dynamic_sysbus_dev(mc, TYPE_PNV_PHB3);
+    machine_class_allow_dynamic_sysbus_dev(mc, TYPE_PNV_PHB);
 }
 
 static void pnv_machine_power9_class_init(ObjectClass *oc, void *data)
@@ -2165,7 +2215,7 @@ static void pnv_machine_power9_class_init(ObjectClass *oc, void *data)
     pmc->compat_size = sizeof(compat);
     pmc->dt_power_mgt = pnv_dt_power_mgt;
 
-    machine_class_allow_dynamic_sysbus_dev(mc, TYPE_PNV_PHB4);
+    machine_class_allow_dynamic_sysbus_dev(mc, TYPE_PNV_PHB);
 }
 
 static void pnv_machine_power10_class_init(ObjectClass *oc, void *data)
@@ -2184,7 +2234,7 @@ static void pnv_machine_power10_class_init(ObjectClass *oc, void *data)
 
     xfc->match_nvt = pnv10_xive_match_nvt;
 
-    machine_class_allow_dynamic_sysbus_dev(mc, TYPE_PNV_PHB5);
+    machine_class_allow_dynamic_sysbus_dev(mc, TYPE_PNV_PHB);
 }
 
 static bool pnv_machine_get_hb(Object *obj, Error **errp)

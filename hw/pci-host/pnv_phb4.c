@@ -1765,7 +1765,7 @@ static void pnv_phb4_class_init(ObjectClass *klass, void *data)
     dc->realize         = pnv_phb4_realize;
     device_class_set_props(dc, pnv_phb4_properties);
     set_bit(DEVICE_CATEGORY_BRIDGE, dc->categories);
-    dc->user_creatable  = true;
+    dc->user_creatable  = false;
 
     xfc->notify         = pnv_phb4_xive_notify;
 }
@@ -1862,8 +1862,7 @@ static void pnv_phb4_root_port_class_init(ObjectClass *klass, void *data)
     PCIDeviceClass *k = PCI_DEVICE_CLASS(klass);
     PCIERootPortClass *rpc = PCIE_ROOT_PORT_CLASS(klass);
 
-    dc->desc     = "IBM PHB4 PCIE Root Port";
-    dc->user_creatable = true;
+    dc->user_creatable = false;
 
     device_class_set_parent_realize(dc, pnv_phb4_root_port_realize,
                                     &rpc->parent_realize);
@@ -1892,8 +1891,7 @@ static void pnv_phb5_root_port_class_init(ObjectClass *klass, void *data)
     DeviceClass *dc = DEVICE_CLASS(klass);
     PCIDeviceClass *k = PCI_DEVICE_CLASS(klass);
 
-    dc->desc     = "IBM PHB5 PCIE Root Port";
-    dc->user_creatable = true;
+    dc->user_creatable = false;
 
     k->vendor_id = PCI_VENDOR_ID_IBM;
     k->device_id = PNV_PHB5_DEVICE_ID;
